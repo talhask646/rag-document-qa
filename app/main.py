@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from app.rag_chain import build_rag_chain, ask_question
 from app.ingest import ingest_pdf
 
+os.makedirs("uploads", exist_ok=True)
+
 # --- App initialisation ---
 app = FastAPI(
     title="RAG Document Q&A",

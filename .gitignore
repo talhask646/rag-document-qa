@@ -5,7 +5,7 @@ venv/
 .env
 
 # Uploaded PDFs (temporary files, not part of the codebase)
-uploads/
+
 
 # Python cache files
 __pycache__/
