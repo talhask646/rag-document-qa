@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RAG Document Q&A</title>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f2f5;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── App shell ── */
+    .app {
+      width: 100%;
+      max-width: 800px;
+      height: 92vh;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      padding: 16px 24px;
+      background: #1a1a2e;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header h1 { font-size: 1.1rem; font-weight: 600; }
+    .header p  { font-size: 0.75rem; opacity: 0.6; margin-top: 2px; }
+
+    .btn-new {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.25);
+      padding: 7px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: background 0.2s;
+    }
+    .btn-new:hover { background: rgba(255,255,255,0.25); }
+
+    /* ── Upload zone ── */
+    .upload-zone {
+      margin: 16px 24px 0;
+      border: 2px dashed #d1d5db;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #fafafa;
+    }
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: #6366f1;
+      background: #eef2ff;
+    }
+    .upload-zone p       { color: #6b7280; font-size: 0.875rem; }
+    .upload-zone .icon   { font-size: 2rem; margin-bottom: 6px; }
+    .upload-zone input   { display: none; }
+
+    /* Upload status badge */
+    .upload-status {
+      display: none;
+      margin: 10px 24px 0;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      align-items: center;
+      gap: 8px;
+    }
+    .upload-status.success {
+      display: flex;
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+    .upload-status.error {
+      display: flex;
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    .upload-status.loading {
+      display: flex;
+      background: #eff6ff;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+    }
+
+    /* ── Chat messages ── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Empty state */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      gap: 8px;
+    }
+    .empty-state .big-icon { font-size: 3rem; }
+    .empty-state p { font-size: 0.9rem; }
+
+    /* Message bubbles */
+    .message { display: flex; flex-direction: column; max-width: 80%; }
+    .message.user { align-self: flex-end; align-items: flex-end; }
+    .message.ai   { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 16px;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      white-space: pre-wrap;       /* preserves line breaks in answers */
+      word-break: break-word;
+    }
+    .message.user .bubble {
+      background: #6366f1;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .message.ai .bubble {
+      background: #f3f4f6;
+      color: #111827;
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Typing indicator */
+    .typing .bubble {
+      background: #f3f4f6;
+      padding: 16px;
+    }
+    .dots { display: flex; gap: 4px; }
+    .dots span {
+      width: 8px; height: 8px;
+      background: #9ca3af;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30%            { transform: translateY(-6px); }
+    }
+
+    /* Source citations */
+    .sources {
+      margin-top: 6px;
+      font-size: 0.78rem;
+    }
+    .sources summary {
+      color: #6366f1;
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+    }
+    .sources summary::before { content: "▶ "; font-size: 0.65rem; }
+    details[open] summary::before { content: "▼ "; }
+    .source-item {
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: #f9fafb;
+      border-left: 3px solid #6366f1;
+      border-radius: 4px;
+      color: #374151;
+      line-height: 1.4;
+    }
+    .source-item strong { color: #6366f1; }
+
+    /* ── Input bar ── */
+    .input-bar {
+      padding: 16px 24px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    textarea {
+      flex: 1;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      max-height: 120px;
+      line-height: 1.5;
+      transition: border-color 0.2s;
+    }
+    textarea:focus { border-color: #6366f1; }
+
+    .btn-send {
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+    .btn-send:hover    { background: #4f46e5; }
+    .btn-send:disabled { background: #a5b4fc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <h1>📄 RAG Document Q&A</h1>
+      <p>Upload a PDF, then ask anything about it</p>
+    </div>
+    <button class="btn-new" onclick="newConversation()">✦ New Chat</button>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <div class="icon">📁</div>
+    <p><strong>Drop your PDF here</strong> or click to browse</p>
+    <p style="margin-top:4px;font-size:0.75rem;">Max 20MB · PDF only</p>
+    <input type="file" id="fileInput" accept=".pdf" onchange="handleFileSelect(event)" />
+  </div>
+
+  <!-- Upload status -->
+  <div class="upload-status" id="uploadStatus"></div>
+
+  <!-- Messages -->
+  <div class="messages" id="messages">
+    <div class="empty-state" id="emptyState">
+      <div class="big-icon">💬</div>
+      <p>Upload a PDF above, then ask a question</p>
+    </div>
+  </div>
+
+  <!-- Input bar -->
+  <div class="input-bar">
+    <textarea
+      id="questionInput"
+      placeholder="Ask a question about your document..."
+      rows="1"
+      onkeydown="handleKeyDown(event)"
+      oninput="autoResize(this)"
+    ></textarea>
+    <button class="btn-send" id="sendBtn" onclick="sendMessage()">Send</button>
+  </div>
+
+</div>
+
+<script>
+  // ── State ──
+  // Generate a unique session ID when the page loads
+  // This identifies this browser tab's conversation to the API
+  const SESSION_ID = "session-" + Math.random().toString(36).slice(2, 10);
+  const API_BASE   = "http://localhost:8000";
+  let isLoading    = false;
+
+  // ── Upload handling ──
+
+  // Drag and drop events
+  const zone = document.getElementById("uploadZone");
+  zone.addEventListener("dragover",  e => { e.preventDefault(); zone.classList.add("dragover"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("dragover");
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  });
+
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) uploadFile(file);
+  }
+
+  async function uploadFile(file) {
+    // Validate on the client side before sending
+    if (!file.name.endsWith(".pdf")) {
+      showUploadStatus("error", "⚠️ Only PDF files are supported");
+      return;
+    }
+
+    showUploadStatus("loading", "⏳ Uploading and processing your PDF...");
+
+    // FormData is how browsers send files over HTTP
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch(API_BASE + "/upload", {
+        method: "POST",
+        body: formData
+        // Note: do NOT set Content-Type header manually when sending FormData
+        // the browser sets it automatically with the correct boundary
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showUploadStatus(
+          "success",
+          "✅ " + data.filename + " processed — " + data.chunks_stored + " chunks stored. Ask away!"
+        );
+      } else {
+        showUploadStatus("error", "⚠️ " + (data.detail || "Upload failed"));
+      }
+    } catch (err) {
+      showUploadStatus("error", "⚠️ Could not reach the API. Is the server running?");
+    }
+  }
+
+  function showUploadStatus(type, message) {
+    const el = document.getElementById("uploadStatus");
+    el.className = "upload-status " + type;
+    el.textContent = message;
+  }
+
+  // ── Chat handling ──
+
+  async function sendMessage() {
+    const input = document.getElementById("questionInput");
+    const question = input.value.trim();
+
+    // Don't send empty messages or send while waiting for a response
+    if (!question || isLoading) return;
+
+    // Clear input and show user message immediately
+    input.value = "";
+    autoResize(input);
+    hideEmptyState();
+    appendMessage("user", question);
+
+    // Show typing indicator while waiting for API
+    const typingEl = appendTyping();
+    setLoading(true);
+
+    try {
+      const response = await fetch(API_BASE + "/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: question,
+          session_id: SESSION_ID
+        })
+      });
+
+      const data = await response.json();
+      typingEl.remove();
+
+      if (response.ok) {
+        appendMessage("ai", data.answer, data.sources);
+      } else {
+        appendMessage("ai", "⚠️ Error: " + (data.detail || "Something went wrong"));
+      }
+    } catch (err) {
+      typingEl.remove();
+      appendMessage("ai", "⚠️ Could not reach the API. Is the server running?");
+    }
+
+    setLoading(false);
+    scrollToBottom();
+  }
+
+  // ── DOM helpers ──
+
+  function appendMessage(role, text, sources) {
+    const messages = document.getElementById("messages");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "message " + role;
+
+    // Message bubble
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    wrapper.appendChild(bubble);
+
+    // Source citations (AI messages only)
+    if (role === "ai" && sources && sources.length > 0) {
+      const details = document.createElement("details");
+      details.className = "sources";
+
+      const summary = document.createElement("summary");
+      // Deduplicate pages for the summary label
+      const pages = [...new Set(sources.map(s => "Page " + s.page))];
+      summary.textContent = "Sources — " + pages.join(", ");
+      details.appendChild(summary);
+
+      // One item per source chunk
+      sources.forEach(source => {
+        const item = document.createElement("div");
+        item.className = "source-item";
+        item.innerHTML =
+          "<strong>Page " + source.page + "</strong><br>" +
+          source.content_preview + "...";
+        details.appendChild(item);
+      });
+
+      wrapper.appendChild(details);
+    }
+
+    messages.appendChild(wrapper);
+    scrollToBottom();
+    return wrapper;
+  }
+
+  function appendTyping() {
+    const messages = document.getElementById("messages");
+    const wrapper = document.createElement("div");
+    wrapper.className = "message ai typing";
+    wrapper.innerHTML =
+      '<div class="bubble"><div class="dots">' +
+      '<span></span><span></span><span></span>' +
+      "</div></div>";
+    messages.appendChild(wrapper);
+    scrollToBottom();
+    return wrapper;
+  }
+
+  function hideEmptyState() {
+    const el = document.getElementById("emptyState");
+    if (el) el.remove();
+  }
+
+  function scrollToBottom() {
+    const messages = document.getElementById("messages");
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function setLoading(state) {
+    isLoading = state;
+    document.getElementById("sendBtn").disabled = state;
+    document.getElementById("questionInput").disabled = state;
+  }
+
+  // Auto-resize textarea as user types
+  function autoResize(el) {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }
+
+  // Send on Enter, new line on Shift+Enter
+  function handleKeyDown(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage();
+    }
+  }
+
+  // ── New conversation ──
+  async function newConversation() {
+    // Tell the API to clear this session's memory
+    await fetch(API_BASE + "/session/" + SESSION_ID, { method: "DELETE" });
+
+    // Reset the UI
+    const messages = document.getElementById("messages");
+    messages.innerHTML =
+      '<div class="empty-state" id="emptyState">' +
+      '<div class="big-icon">💬</div>' +
+      "<p>Upload a PDF above, then ask a question</p>" +
+      "</div>";
+
+    showUploadStatus("", "");
+    document.getElementById("uploadStatus").style.display = "none";
+  }
+</script>
+</body>
+</html>
